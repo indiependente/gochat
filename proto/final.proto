@@ -1,0 +1,72 @@
+syntax = "proto3";
+option go_package = "gochat";
+
+package gochat;
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+// The greeting service definition.
+service Chat {
+  // Registers a user to the chat
+  rpc Login (LoginRequest) returns (LoginResponse) {}
+  // Disconnect deletes a user from the chat
+  rpc Logout (LogoutRequest) returns (LogoutResponse) {}
+  // Sends a public message
+  rpc Chat (stream StreamRequest) returns (stream StreamResponse) {}
+  // Sends a private message
+  rpc PvtChat (Message) returns (google.protobuf.Empty) {}
+  // Lists all the users logged into the chat
+  rpc ListUsers (google.protobuf.Empty) returns (stream User) {}
+}
+
+// The request message containing the user's name.
+message Message {
+  string from = 1;
+  string to = 2;
+  string text = 3;
+}
+
+message User {
+  string name = 1;
+}
+
+message LoginRequest {
+  string name = 1;
+  string password = 2;
+}
+message LoginResponse {}
+
+message LogoutRequest {
+  string name = 1;
+}
+message LogoutResponse {}
+
+message StreamRequest {
+  string message = 1;
+}
+
+message StreamResponse {
+  google.protobuf.Timestamp timestamp = 1;
+
+  oneof event {
+      Login    client_login    = 2;
+      Logout   client_logout   = 3;
+      Message  client_message  = 4;
+      Shutdown server_shutdown = 5;
+  }
+
+  message Login {
+      string name = 1;
+  }
+
+  message Logout {
+      string name = 1;
+  }
+
+  message Message {
+      string name = 1;
+      string text = 2;
+  }
+
+  message Shutdown {}
+}
