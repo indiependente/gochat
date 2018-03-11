@@ -7,12 +7,16 @@ import (
 	chat "gochat/proto"
 	"log"
 	"os"
+	"time"
 
 	"google.golang.org/grpc"
 )
 
 func main() {
 	log.SetFlags(0)
+
+	name := os.Args[1]
+
 	fmt.Println("Connecting to localhost:1337...")
 	conn, err := grpc.Dial("localhost:1337", grpc.WithInsecure())
 
@@ -25,11 +29,22 @@ func main() {
 	c := chat.NewChatClient(conn)
 	ctx := context.Background()
 
-	if _, err := c.Login(ctx, &chat.LoginRequest{Name: "pippo", Password: "password"}); err != nil {
+	// Login
+	loginRes, err := c.Login(ctx, &chat.LoginRequest{Name: name, Password: "password"})
+	if err != nil {
 		common.Errorf("%v\n", err)
 		os.Exit(1)
 	}
+	common.ClientLogf("Logged in. My token is %s\n", loginRes.Token)
 
-	common.ClientLogf("%s", "Logged in.")
+	// do something here
+	time.Sleep(5 * time.Second)
 
+	// Logout
+	_, err = c.Logout(ctx, &chat.LogoutRequest{Token: loginRes.Token})
+	if err != nil {
+		common.Errorf("%v\n", err)
+		os.Exit(1)
+	}
+	common.ClientLogf("Logged out.\n")
 }
