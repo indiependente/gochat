@@ -3,13 +3,16 @@ option go_package = "gochat";
 
 package gochat;
 
+import "google/protobuf/timestamp.proto";
+
 // The greeting service definition.
 service Chat {
   // Registers a user to the chat
   rpc Login (LoginRequest) returns (LoginResponse) {}
   // Unregisters a user to the chat
   rpc Logout (LogoutRequest) returns (LogoutResponse) {}
-  
+  // Send/Receive messages
+  rpc Stream (stream StreamRequest) returns (stream StreamResponse) {}
 }
 
 message LoginRequest {
@@ -24,3 +27,33 @@ message LogoutRequest {
   string token = 1;
 }
 message LogoutResponse {}
+
+message StreamRequest {
+  string message = 1;
+}
+
+message StreamResponse {
+  google.protobuf.Timestamp timestamp = 1;
+
+  oneof event {
+      Login    client_login    = 2;
+      Logout   client_logout   = 3;
+      Message  client_message  = 4;
+      Shutdown server_shutdown = 5;
+  }
+
+  message Login {
+      string name = 1;
+  }
+
+  message Logout {
+      string name = 1;
+  }
+
+  message Message {
+      string name    = 1;
+      string message = 2;
+  }
+
+  message Shutdown {}
+}

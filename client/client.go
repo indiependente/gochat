@@ -12,6 +12,11 @@ import (
 	"google.golang.org/grpc"
 )
 
+type client struct {
+	chat.ChatClient
+	name, token, password string
+}
+
 func main() {
 	log.SetFlags(0)
 
@@ -25,17 +30,21 @@ func main() {
 	}
 
 	defer conn.Close()
+	c := &client{name: name, password: "password"}
+	c.Run(conn)
+}
 
-	c := chat.NewChatClient(conn)
+func (c *client) Run(conn *grpc.ClientConn) {
+	c.ChatClient = chat.NewChatClient(conn)
 	ctx := context.Background()
 
 	// Login
-	loginRes, err := c.Login(ctx, &chat.LoginRequest{Name: name, Password: "password"})
+	loginRes, err := c.Login(ctx, &chat.LoginRequest{Name: c.name, Password: c.password})
 	if err != nil {
 		common.Errorf("%v\n", err)
 		os.Exit(1)
 	}
-	common.ClientLogf("Logged in. My token is %s\n", loginRes.Token)
+	common.ClientLogf("Logged in. My token is %s", loginRes.Token)
 
 	// do something here
 	time.Sleep(5 * time.Second)
@@ -46,5 +55,5 @@ func main() {
 		common.Errorf("%v\n", err)
 		os.Exit(1)
 	}
-	common.ClientLogf("Logged out.\n")
+	common.ClientLogf("%s", "Logged out.")
 }

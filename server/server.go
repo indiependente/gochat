@@ -28,6 +28,7 @@ type Server struct {
 type User struct {
 	name      string
 	loginTime time.Time
+	stream    chan chat.StreamResponse
 }
 
 // main start a gRPC server and waits for connection
@@ -91,4 +92,9 @@ func (s *Server) Logout(ctx context.Context, req *chat.LogoutRequest) (*chat.Log
 	}
 	common.ServerLogf("%s has left", u.name)
 	return &chat.LogoutResponse{}, nil
+}
+
+func (s *Server) Stream(stream chat.Chat_StreamServer) error {
+	// handle streams
+	return nil
 }
