@@ -1,0 +1,3 @@
+package main
+
+// TODO: write stream handlers, e.g. openStream, closeStream, etc...
