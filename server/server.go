@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"gochat/common"
 	chat "gochat/proto"
+	"io"
 	"time"
 
 	"log"
 	"net"
 	"sync"
 
+	"github.com/golang/protobuf/ptypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -19,10 +21,11 @@ import (
 
 const password = "password"
 
-type Server struct {
+type server struct {
 	tokens          map[string]string
 	users           map[string]*User
 	tkLock, usrLock sync.RWMutex
+	broadcastCh     chan chat.StreamResponse
 }
 
 type User struct {
@@ -33,16 +36,17 @@ type User struct {
 
 // main start a gRPC server and waits for connection
 func main() {
-	s := &Server{
-		tokens: make(map[string]string),
-		users:  make(map[string]*User),
+	s := &server{
+		tokens:      make(map[string]string),
+		users:       make(map[string]*User),
+		broadcastCh: make(chan chat.StreamResponse, 1000),
 	}
-	ctx := context.Background()
+	ctx := common.SignalContext(context.Background())
 	s.Run(ctx)
 }
 
 // Run executes the server
-func (s *Server) Run(ctx context.Context) error {
+func (s *server) Run(ctx context.Context) error {
 	log.SetFlags(0)
 
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", 1337))
@@ -50,25 +54,38 @@ func (s *Server) Run(ctx context.Context) error {
 		log.Fatalf("failed to listen: %v", err)
 	}
 	common.ServerLogf("%s", "Listening on port 1337")
+
 	// create a gRPC server object
 	grpcServer := grpc.NewServer()
 	// attach the chat service to the server
 	chat.RegisterChatServer(grpcServer, s)
+
+	// start the broadcast goroutine
+	go s.broadcast()
+
 	// start the server
 	if err := grpcServer.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %s", err)
 	}
 
 	// broadcast server is running
-
 	<-ctx.Done()
+
+	s.broadcastCh <- chat.StreamResponse{
+		Timestamp: ptypes.TimestampNow(),
+		Event: &chat.StreamResponse_ServerShutdown{
+			&chat.StreamResponse_Shutdown{},
+		},
+	}
+
+	close(s.broadcastCh)
 	common.ServerLogf("shutting down")
 
 	grpcServer.GracefulStop()
 	return nil
 }
 
-func (s *Server) Login(ctx context.Context, req *chat.LoginRequest) (*chat.LoginResponse, error) {
+func (s *server) Login(ctx context.Context, req *chat.LoginRequest) (*chat.LoginResponse, error) {
 	// password check
 	if req.Password != password {
 		return nil, status.Error(codes.Unauthenticated, "wrong password")
@@ -79,22 +96,62 @@ func (s *Server) Login(ctx context.Context, req *chat.LoginRequest) (*chat.Login
 		return nil, status.Error(codes.AlreadyExists, err.Error())
 	}
 
-	common.ServerLogf("%s has joined", req.Name+" ("+token+")")
+	common.ServerLogf("%s has joined the chat", u.name)
+	s.printUsers()
 	// return token to user
 	return &chat.LoginResponse{Token: token}, nil
 }
 
-func (s *Server) Logout(ctx context.Context, req *chat.LogoutRequest) (*chat.LogoutResponse, error) {
-	u, err := s.deleteUser(req.Token)
+func (s *server) Logout(ctx context.Context, req *chat.LogoutRequest) (*chat.LogoutResponse, error) {
+	fmt.Println("Users")
+	s.printUsers()
+	u, err := s.getUser(req.Token)
 	if err != nil {
-		common.Errorf("%v\n", err)
+		fmt.Printf("ERR: %v\n", err)
+	}
+	fmt.Printf("token = %s, user = %v\n", req.Token, u)
+
+	u, err = s.deleteUser(req.Token)
+	if err != nil {
+		common.Errorf("Delete user with token %s failed: %v\n", req.Token, err)
 		return nil, err
 	}
-	common.ServerLogf("%s has left", u.name)
+	common.ServerLogf("%s has left the chat", u.name)
 	return &chat.LogoutResponse{}, nil
 }
 
-func (s *Server) Stream(stream chat.Chat_StreamServer) error {
+func (s *server) Stream(stream chat.Chat_StreamServer) error {
 	// handle streams
-	return nil
+	tk, ok := extractToken(stream.Context())
+	if !ok {
+		return status.Error(codes.Unauthenticated, "missing token header")
+	}
+	usr, err := s.getUser(tk)
+	if err != nil {
+		return status.Error(codes.NotFound, "user not found for token: "+tk)
+	}
+
+	// start a new goroutine for this client
+	go s.broadcastMessages(stream, tk)
+
+	for {
+		req, err := stream.Recv()
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			return err
+		}
+
+		s.broadcastCh <- chat.StreamResponse{
+			Timestamp: ptypes.TimestampNow(),
+			Event: &chat.StreamResponse_ClientMessage{&chat.StreamResponse_Message{
+				Name:    usr.name,
+				Message: req.Message,
+			}},
+		}
+	}
+
+	<-stream.Context().Done()
+	return stream.Context().Err()
+
 }

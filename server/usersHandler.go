@@ -4,9 +4,34 @@ import (
 	"crypto/rand"
 	"fmt"
 	"gochat/common"
+	chat "gochat/proto"
+
+	"github.com/golang/protobuf/ptypes"
 )
 
-func (s *Server) addUser(token string, u *User) error {
+func (s *server) loginNotification(name string) {
+	s.broadcastCh <- chat.StreamResponse{
+		Timestamp: ptypes.TimestampNow(),
+		Event: &chat.StreamResponse_ClientLogin{
+			ClientLogin: &chat.StreamResponse_Login{
+				Name: name,
+			},
+		},
+	}
+}
+
+func (s *server) logoutNotification(name string) {
+	s.broadcastCh <- chat.StreamResponse{
+		Timestamp: ptypes.TimestampNow(),
+		Event: &chat.StreamResponse_ClientLogout{
+			ClientLogout: &chat.StreamResponse_Logout{
+				Name: name,
+			},
+		},
+	}
+}
+
+func (s *server) addUser(token string, u *User) error {
 	s.usrLock.Lock()
 	defer s.usrLock.Unlock()
 	if err := s.addToken(u.name, token); err != nil {
@@ -16,7 +41,7 @@ func (s *Server) addUser(token string, u *User) error {
 	return nil
 }
 
-func (s *Server) getUser(token string) (*User, error) {
+func (s *server) getUser(token string) (*User, error) {
 	s.usrLock.RLock()
 	defer s.usrLock.RUnlock()
 	u, ok := s.users[token]
@@ -26,9 +51,10 @@ func (s *Server) getUser(token string) (*User, error) {
 	return u, nil
 }
 
-func (s *Server) deleteUser(token string) (*User, error) {
+func (s *server) deleteUser(token string) (*User, error) {
 	s.usrLock.Lock()
 	defer s.usrLock.Unlock()
+	fmt.Println("called deleteUser")
 	u, ok := s.users[token]
 	if !ok {
 		common.Errorf("%s %v", ok, u)
@@ -41,7 +67,7 @@ func (s *Server) deleteUser(token string) (*User, error) {
 	return u, nil
 }
 
-func (s *Server) addToken(name, token string) error {
+func (s *server) addToken(name, token string) error {
 	s.tkLock.Lock()
 	defer s.tkLock.Unlock()
 	if _, ok := s.tokens[name]; ok {
@@ -51,7 +77,7 @@ func (s *Server) addToken(name, token string) error {
 	return nil
 }
 
-func (s *Server) getToken(name string) (string, error) {
+func (s *server) getToken(name string) (string, error) {
 	s.tkLock.RLock()
 	defer s.tkLock.RUnlock()
 	tk, ok := s.tokens[name]
@@ -61,7 +87,7 @@ func (s *Server) getToken(name string) (string, error) {
 	return tk, nil
 }
 
-func (s *Server) deleteToken(name string) error {
+func (s *server) deleteToken(name string) error {
 	s.tkLock.Lock()
 	defer s.tkLock.Unlock()
 	if _, ok := s.tokens[name]; !ok {
@@ -69,6 +95,22 @@ func (s *Server) deleteToken(name string) error {
 	}
 	delete(s.tokens, name)
 	return nil
+}
+
+func (s *server) printUsers() {
+	s.usrLock.RLock()
+	defer s.usrLock.RUnlock()
+	for k, v := range s.users {
+		fmt.Println(k, v)
+	}
+}
+
+func (s *server) printTokens() {
+	s.tkLock.RLock()
+	defer s.tkLock.RUnlock()
+	for k, v := range s.tokens {
+		fmt.Println(k, v)
+	}
 }
 
 func createToken(name string) string {
